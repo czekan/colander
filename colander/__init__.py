@@ -57,6 +57,13 @@ def interpolate(msgs):
         else:
             yield s
 
+class UnboundDeferredError(Exception):
+    """
+    An exception raised by :meth:`SchemaNode.deserialize` when an attempt
+    is made to deserialize a node which has an unbound :class:`deferred`
+    validator.
+    """
+
 class Invalid(Exception):
     """
     An exception raised by data types and validators indicating that
@@ -286,6 +293,9 @@ class Regex(object):
         error message to be used; otherwise, defaults to 'String does
         not match expected pattern'.
 
+        The ``regex`` expression behaviour can be modified by specifying
+        any ``flags`` value taken by ``re.compile``.
+
         The ``regex`` argument may also be a pattern object (the
         result of ``re.compile``) instead of a string.
 
@@ -293,9 +303,9 @@ class Regex(object):
         validation succeeds; otherwise, :exc:`colander.Invalid` is
         raised with the ``msg`` error message.
     """
-    def __init__(self, regex, msg=None):
+    def __init__(self, regex, msg=None, flags=0):
         if isinstance(regex, string_types):
-            self.match_object = re.compile(regex)
+            self.match_object = re.compile(regex, flags)
         else:
             self.match_object = regex
         if msg is None:
@@ -314,7 +324,7 @@ class Email(Regex):
         the error message to be used when raising :exc:`colander.Invalid`;
         otherwise, defaults to 'Invalid email address'.
     """
-    
+
     def __init__(self, msg=None):
         email_regex = text_(EMAIL_RE)
         if msg is None:
@@ -346,48 +356,73 @@ class Range(object):
     provided, it defaults to ``'${val} is greater than maximum value
     ${max}'``.
     """
-    min_err = _('${val} is less than minimum value ${min}')
-    max_err = _('${val} is greater than maximum value ${max}')
+    _MIN_ERR = _('${val} is less than minimum value ${min}')
+    _MAX_ERR = _('${val} is greater than maximum value ${max}')
 
-    def __init__(self, min=None, max=None, min_err=None, max_err=None):
+    def __init__(self, min=None, max=None, min_err=_MIN_ERR, max_err=_MAX_ERR):
         self.min = min
         self.max = max
-        if min_err is not None:
-            self.min_err = min_err
-        if max_err is not None:
-            self.max_err = max_err
+        self.min_err = min_err
+        self.max_err = max_err
 
     def __call__(self, node, value):
         if self.min is not None:
             if value < self.min:
-                min_err = _(self.min_err, mapping={'val':value, 'min':self.min})
+                min_err = _(
+                    self.min_err, mapping={'val':value, 'min':self.min})
                 raise Invalid(node, min_err)
 
         if self.max is not None:
             if value > self.max:
-                max_err = _(self.max_err, mapping={'val':value, 'max':self.max})
+                max_err = _(
+                    self.max_err, mapping={'val':value, 'max':self.max})
                 raise Invalid(node, max_err)
 
+
 class Length(object):
-    """ Validator which succeeds if the value passed to it has a
-    length between a minimum and maximum.  The value is most often a
-    string."""
-    def __init__(self, min=None, max=None):
+    """Validator which succeeds if the value passed to it has a
+        length between a minimum and maximum, expressed in the
+        optional ``min`` and ``max`` arguments.
+        The value can be any sequence, most often a string.
+
+        If ``min`` is not specified, or is specified as ``None``,
+        no lower bound exists.  If ``max`` is not specified, or
+        is specified as ``None``, no upper bound exists.
+
+        The default error messages are "Shorter than minimum length ${min}"
+        and "Longer than maximum length ${max}". These can be customized:
+
+        ``min_err`` is used to form the ``msg`` of the
+        :exc:`colander.Invalid` error when reporting a validation failure
+        caused by a value not meeting the minimum length.  If ``min_err`` is
+        specified, it must be a string.  The string may contain the
+        replacement target ``${min}``.
+
+        ``max_err`` is used to form the ``msg`` of the
+        :exc:`colander.Invalid` error when reporting a validation failure
+        caused by a value exceeding the maximum length.  If ``max_err`` is
+        specified, it must be a string.  The string may contain the
+        replacement target ``${max}``.
+        """
+    _MIN_ERR = _('Shorter than minimum length ${min}')
+    _MAX_ERR = _('Longer than maximum length ${max}')
+
+    def __init__(self, min=None, max=None, min_err=_MIN_ERR, max_err=_MAX_ERR):
         self.min = min
         self.max = max
+        self.min_err = min_err
+        self.max_err = max_err
 
     def __call__(self, node, value):
         if self.min is not None:
             if len(value) < self.min:
-                min_err = _('Shorter than minimum length ${min}',
-                            mapping={'min':self.min})
+                min_err = _(self.min_err, mapping={'min': self.min})
                 raise Invalid(node, min_err)
-
         if self.max is not None:
             if len(value) > self.max:
-                max_err = _('Longer than maximum length ${max}',
-                            mapping={'max':self.max})
+                max_err = _(self.max_err, mapping={'max': self.max})
                 raise Invalid(node, max_err)
+
 
 class OneOf(object):
     """ Validator which succeeds if the value passed to it is one of
@@ -458,6 +493,11 @@ URL_REGEX = r"""(?i)\b((?:[a-z][\w-]+:(?:/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9
 
 url = Regex(URL_REGEX, _('Must be a URL'))
 
+
+UUID_REGEX = r"""^(?:urn:uuid:)?\{?[a-f0-9]{8}(?:-?[a-f0-9]{4}){3}-?[a-f0-9]{12}\}?$"""
+uuid = Regex(UUID_REGEX, _('Invalid UUID string'), re.IGNORECASE)
+
+
 class SchemaType(object):
     """ Base class for all schema types """
     def flatten(self, node, appstruct, prefix='', listitem=False):
@@ -466,7 +506,7 @@ class SchemaType(object):
             selfname = prefix
         else:
             selfname = '%s%s' % (prefix, node.name)
-        result[selfname] = appstruct
+        result[selfname.rstrip('.')] = appstruct
         return result
 
     def unflatten(self, node, paths, fstruct):
@@ -917,7 +957,7 @@ class Sequence(Positional, SchemaType):
 
     def _validate(self, node, value, accept_scalar):
         if (hasattr(value, '__iter__') and
-            not hasattr(value, 'get') and 
+            not hasattr(value, 'get') and
             not isinstance(value, string_types)):
             return list(value)
         if accept_scalar:
@@ -1300,7 +1340,7 @@ class Boolean(SchemaType):
     are considered ``True``, and an Invalid exception would be raised
     for values outside of both :attr:`false_choices` and :attr:`true_choices`.
 
-    Serialization will produce :attr:`true_val` or :attr:`false_val` 
+    Serialization will produce :attr:`true_val` or :attr:`false_val`
     based on the value.
 
     If the :attr:`colander.null` value is passed to the serialize
@@ -1347,8 +1387,8 @@ class Boolean(SchemaType):
             else:
                 raise Invalid(node,
                               _('"${val}" is neither in (${false_choices}) '
-                                'nor in (${true_choices})', 
-                                mapping={'val':cstruct, 
+                                'nor in (${true_choices})',
+                                mapping={'val':cstruct,
                                          'false_choices': self.false_reprs,
                                          'true_choices': self.true_reprs })
                               )
@@ -1812,10 +1852,10 @@ class _SchemaNode(object):
     validator = None
     default = null
     missing = required
-    missing_msg = _('Required')
+    missing_msg = 'Required'
     name = ''
     raw_title = _marker
-    title = ''
+    title = _marker
     description = ''
     widget = None
     after_bind = None
@@ -1842,8 +1882,9 @@ class _SchemaNode(object):
         # bw compat forces us to manufacture a title if one is not supplied
         title = kw.get('title', _marker)
         if title is _marker:
-            name = kw.get('name', self.name)
-            kw['title'] = name.replace('_', ' ').title()
+            if self.title is _marker:
+                name = kw.get('name', self.name)
+                kw['title'] = name.replace('_', ' ').title()
         else:
             kw['raw_title'] = title
 
@@ -1852,7 +1893,7 @@ class _SchemaNode(object):
     @staticmethod
     def schema_type():
         raise NotImplementedError(
-            'Schema node construction without a typ argument or '
+            'Schema node construction without a type argument or '
             'a schema_type() callable present on the node class '
             )
 
@@ -1954,15 +1995,21 @@ class _SchemaNode(object):
         if appstruct is null:
             appstruct = self.missing
             if appstruct is required:
-                raise Invalid(self, self.missing_msg)
+                raise Invalid(self, _(self.missing_msg,
+                                      mapping={'title': self.title,
+                                               'name':self.name}))
+
             if isinstance(appstruct, deferred): # unbound schema with deferreds
                 raise Invalid(self, self.missing_msg)
             # We never deserialize or validate the missing value
             return appstruct
 
         if self.validator is not None:
-            if not isinstance(self.validator, deferred): # unbound
-                self.validator(self, appstruct)
+            if isinstance(self.validator, deferred): # unbound
+                raise UnboundDeferredError(
+                    "Schema node {node} has an unbound deferred validator"
+                    .format(node=self))
+            self.validator(self, appstruct)
         return appstruct
 
     def add(self, node):
@@ -2214,9 +2261,9 @@ class instantiate(object):
     All parameters passed to the decorator and passed along to the
     :class:`SchemaNode` during instantiation.
     """
-    
+
     def __init__(self,*args,**kw):
         self.args,self.kw = args,kw
-        
+
     def __call__(self,class_):
         return class_(*self.args,**self.kw)

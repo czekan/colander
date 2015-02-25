@@ -1,8 +1,44 @@
 Unreleased
 ----------
 
+Platform
+--------
+
+- Add explicit support for Python 3.4 and PyPy3.
+
+Features
+~~~~~~~~
+
+- Add ``min_err`` and ``max_err`` arguments to ``Length``, thus allowing
+  customization of its error messages.
+
+- Add `Any` validator which succeeds if at least one of its subvalidators
+  succeeded.
+
+- Allow localization of error messages returned by ``colander.Invalid.asdict``
+  by adding an optional ``translate`` callable argument.
+
+- Add a ``missing_msg`` argument to ``SchemaNode`` that specifies the error
+  message to be used when the node is required and missing
+
+Bug Fixes
+---------
+
+- Fix an issue where the ``flatten()`` method produces an invalid name
+  (ex: "answer.0.") for the type "Sequence".  See
+  https://github.com/Pylons/colander/issues/179
+
+
+1.0 (2014-11-26)
+----------------
+
 Bug Fixes
 ~~~~~~~~~
+
+- Removed forked ``iso8601`` and change to dependency on PyPI ``iso8601``
+  (due to float rounding bug on microsecond portion when parsing
+  iso8601 datetime string).  Left an ``iso8601.py`` stub for backwards
+  compatibility.
 
 - Time of "00:00" no longer gives ``colander.Invalid``.
 
@@ -17,14 +53,22 @@ Bug Fixes
   returning the ``drop`` instance instead of omitting the value.
   https://github.com/Pylons/colander/issues/139
 
-Features
-~~~~~~~~
+- Fix an issue where the ``SchemaNode.title`` was clobbered by the ``name``
+  when defined as a class attribute.
+  See https://github.com/Pylons/colander/pull/183 and
+  https://github.com/Pylons/colander/pull/185
 
-- Add `Any` validator which succeeds if at least one of its subvalidators
-  succeeded.
+- Updated translations: ``fr``, ``de``, ``ja``
 
-- Allow localization of error messages returned by ``colander.Invalid.asdict``
-  by adding an optional ``translate`` callable argument.
+
+Backwards Incompatibilities
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``SchemaNode.deserialize`` will now raise an
+  ``UnboundDeferredError`` if the node has an unbound deferred
+  validator.  Previously, deferred validators were silently ignored.
+  See https://github.com/Pylons/colander/issues/47
+
 
 1.0b1 (2013-09-01)
 ------------------
@@ -81,8 +125,7 @@ Features
 - The ``typ`` of a ``SchemaNode`` can optionally be pased in as a keyword
   argument. See https://github.com/Pylons/colander/issues/90
 
-- Add a ``missing_msg`` argument to ``SchemaNode`` that specifies the error
-  message to be used when the node is required and missing
+- Allow interpolation of `missing_msg` with properties `title` and `name`
 
 1.0a5 (2013-05-31)
 ------------------
@@ -393,7 +436,7 @@ Features
               id='a2',
               )
           c = colander.SchemaNode(
-              colander.String(), 
+              colander.String(),
               id='c2',
               )
           e = colander.SchemaNode(
@@ -449,7 +492,7 @@ Features
               id='a2',
               )
           c = colander.SchemaNode(
-              colander.String(), 
+              colander.String(),
               id='c2',
               )
           e = colander.SchemaNode(
